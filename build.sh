@@ -10,9 +10,9 @@ find  build -name "*.md" | xargs rm -f
 cp -r theme build
 
 cd build
-echo -n "" > index.html
-for file in `find . -name "*.html"`;do
-    echo "<p><a href=\"$file\" >$file </a></p>" >> index.html
+echo "" > index.md
+for file in `find . -name "*.html" | grep -v "^\./theme/" | grep -v "^\./index" | sort -r`;do
+    echo "* [$file]($file)" >> index.md
 done
-
+$TC_TOOL index.md > index.html
 rsync -avz -e "ssh -p 2222" . codeboy.name:/usr/share/nginx/blog_html/
