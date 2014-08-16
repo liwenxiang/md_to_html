@@ -1,5 +1,6 @@
 TC_TOOL="/Users/liwenxiang/Program/md_to_html/md2html.sh"
 rm -rf build
+set -e
 cp -r $1 build
 for file in `find  build -name "*.md"`;do
     dst_file_name="${file}.html"
