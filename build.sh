@@ -1,7 +1,9 @@
 TC_TOOL="/Users/liwenxiang/Program/md_to_html/md2html.sh"
+POST_DIR="post/"
+
 rm -rf build
 set -e
-cp -r $1 build
+cp -r $POST_DIR build
 for file in `find  build -name "*.md"`;do
     dst_file_name="${file}.html"
     $TC_TOOL $file > $dst_file_name
