@@ -1,0 +1,80 @@
+<!DOCTYPE html> <html> <head> <!-- <link href="http://cdn.bootcss.com/highlight.js/8.0/styles/monokai_sublime.min.css" rel="stylesheet"> --> <!-- <script src="http://cdn.bootcss.com/highlight.js/8.0/highlight.min.js"></script> --> <!-- <script>hljs.initHighlightingOnLoad();</script> --> <base href="http://blog.codeboy.name/" target="_blank"> <link rel="stylesheet" type="text/css" media="screen" href="theme/css/GitHub2.css" /> <head> <body>
+<h1 id="-">谷歌编译系统</h1>
+<h2 id="-">依赖解决</h2>
+<ol>
+<li>所有文件源代码编译，并且是依赖HEAD<ol>
+<li>全部源代码编译解决二进制兼容问题，</li>
+</ol>
+</li>
+<li><p>依赖系统为package:rule级别，类似rpm， 但是<code>所有依赖不依赖文件级别, 全部是其他的rule</code>, 这个是和类make的编译工具最大的不同</p>
+<ol>
+<li>每条规则不写明依赖的文件，像cc_library 实际只需要本身的src和src文件里面的header文件，没有其他rule的输出文件作为依赖， 那么所有的cc_library就可以完全并发，而且没有顺序要求</li>
+<li>cc_binary这种需要依赖其他的rule的输出的，只有等上一个cc_library 完成了才能进行</li>
+<li>从截图看，google是所有文件打.a, 然后.a编译binary</li>
+<li>既然cc_library不指定依赖的文件， 肯定有自动化的解析头文件，自动的找出依赖的其他rule的header,<br>  比如下面cc_library(name = ‘query’)这条，就需要自动找出query.cc里面用到的其他.h </li>
+<li><p>既然cc_binary不指定依赖的文件，肯定是把cc_binary依赖的所有cc_library rule的产出(*.a)全部一起编译。<br>  这点存在疑问， 不指定文件级别在打binary能否解决所有问题, 比如有打package的需求，不指定文件？？<br>  或者只有在打binary和package的时候可以制定到文件级别？？<br>  有空看下gyp的配置</p>
+<pre><code>/search/BUILD: 
+cc_binary(name = ‘google_search_page’, 
+       deps = [ ‘:search’, 
+                ‘:show_results’]) 
+
+cc_library(name = ‘search’, 
+        srcs = [ ‘search.h’,‘search.cc’], 
+        deps = [‘//index:query’]) 
+
+/index/BUILD: 
+
+cc_library(name = ‘query’, 
+        srcs = [ ‘query.h’, ‘query.cc’, ‘query_util.cc’], 
+        deps = [‘:ranking’, 
+                ‘:index’]) 
+
+cc_library(name = ‘ranking’, 
+        srcs = [‘ranking.h’, ‘ranking.cc’], 
+        deps = [‘:index’,  
+                ‘//storage/database:query’]) 
+
+cc_library(name = ‘index’, 
+        srcs = [‘index.h’, ‘index.cc’], 
+        deps = [‘//storage/database:query’])
+</code></pre></li>
+</ol>
+</li>
+<li><p>文件是否改变根据CAS(Content-addressable storage)来确定,而不是文件名，最后修改时间这些<br><a href="http://3.bp.blogspot.com/-WpqHTKErXhA/TgCqZAAsJzI/AAAAAAAAAAY/pO9w2ZZS7Lo/s320/image02.png">http://3.bp.blogspot.com/-WpqHTKErXhA/TgCqZAAsJzI/AAAAAAAAAAY/pO9w2ZZS7Lo/s320/image02.png</a></p>
+</li>
+<li>开发的时候都只是改动一小部分，所以依赖的所有文件不下载具体内容，只下载cas下来，有cas已经可以云端编译了。</li>
+<li>使用fuse,当人工第一次需要读这些文件的时候，再自动下载下来文件内容，节省带宽</li>
+</ol>
+<h2 id="-">具体编译过程</h2>
+<ol>
+<li>根据BUILD文件生成一个项目依赖图， 然后在细化为action图，<br><a href="http://1.bp.blogspot.com/-J33oNoBeNZQ/Tkz2d-FD9NI/AAAAAAAAABI/TKDHLsBd0qY/s1600/BuildintheCloudPart2HowtheBuildSystemworks.png">http://1.bp.blogspot.com/-J33oNoBeNZQ/Tkz2d-FD9NI/AAAAAAAAABI/TKDHLsBd0qY/s1600/BuildintheCloudPart2HowtheBuildSystemworks.png</a><br><a href="http://4.bp.blogspot.com/-wWe0mldN7aM/Tkz2eJO199I/AAAAAAAAABQ/jsHZhMcbHLU/s1600/BuildintheCloudPart2HowtheBuildSystemworks%2B%25281%2529.png">http://4.bp.blogspot.com/-wWe0mldN7aM/Tkz2eJO199I/AAAAAAAAABQ/jsHZhMcbHLU/s1600/BuildintheCloudPart2HowtheBuildSystemworks%2B%25281%2529.png</a><ol>
+<li>每个action由若干文件， 编译参数等做输入，若干文件做输出，类似函数的意义</li>
+</ol>
+</li>
+<li>加强限制， <code>当输入相同时， 输出的文件是绝对相同(bit-identical)</code>。<ol>
+<li>编译中可能有加入一些当前时间之类的宏，</li>
+<li>解决方式是更改编译方式，保证action和外部环境不相关，然后在增加后置处理来加上时间</li>
+</ol>
+</li>
+<li>每个action的输出都只取决于输入，和系统等外部变量没有关系<ol>
+<li>这些action在哪台机器执行都没有关系。</li>
+<li>同样的输入可以缓存起来（很多基础库的代码很多人在同时编译）<pre><code> a.cpp-&gt;a.so 当A编译过a.cpp之后， B再来编译a.cpp就直接返回a.so的cache
+ a.cpp-&gt;a.so a.so + b.cpp -&gt; binary, 当a.cpp只有注释，或者空白之类的改变时， a.cpp-&gt;a.so需要重新执行
+ 但是两次产出的a.so是一样的，索引第二个a.so+b.cpp就不用重新编译了。
+</code></pre></li>
+<li>传说90%的action缓存命中率</li>
+</ol>
+</li>
+</ol>
+<h2 id="-">云端编译输出的文件是很大，全部下载太占网络</h2>
+<ol>
+<li>大部分的输出文件都是dev不关心的。所有只有在第一次查看文件的时候，才会去下载文件，<ol>
+<li>这个过程因为使用的fuse, 所以下载过程对开发是透明的 </li>
+</ol>
+</li>
+</ol>
+<h2 id="-">原文见</h2>
+<p><a href="http://google-engtools.blogspot.hk/2011/06/build-in-cloud-accessing-source-code.html">http://google-engtools.blogspot.hk/2011/06/build-in-cloud-accessing-source-code.html</a><br><a href="http://google-engtools.blogspot.hk/2011/08/build-in-cloud-how-build-system-works.html">http://google-engtools.blogspot.hk/2011/08/build-in-cloud-how-build-system-works.html</a><br><a href="http://google-engtools.blogspot.hk/2011/09/build-in-cloud-distributing-build-steps.html">http://google-engtools.blogspot.hk/2011/09/build-in-cloud-distributing-build-steps.html</a><br><a href="http://google-engtools.blogspot.hk/2011/10/build-in-cloud-distributing-build.html">http://google-engtools.blogspot.hk/2011/10/build-in-cloud-distributing-build.html</a></p>
+<h2 id="gyp-build-">gyp是一个比较类似的BUILD依赖系统了，</h2>
+
+</body> </html>
