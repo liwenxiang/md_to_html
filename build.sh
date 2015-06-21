@@ -18,4 +18,4 @@ for file in `find . -name "*.html" | grep -v "^\./theme/" | grep -v "^\./index" 
     echo "* [$file]($file)" >> index.md
 done
 $TC_TOOL index.md > index.html
-rsync -avz -e "ssh -p 2222" . codeboy.name:/usr/share/nginx/blog_html/
+rsync -avz -e "ssh -p 2222" . codeboy.name:/home/liwenxiang/nginx/html/blog_html/
