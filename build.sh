@@ -14,7 +14,7 @@ cp -r theme build
 
 cd build
 echo "" > index.md
-for file in `find . -name "*.html" | grep -v "^\./theme/" | grep -v "^\./index" | sort -r`;do
+for file in `find . -name "*.html" | grep -v "^\./theme/" | grep -v "^\./index" | sort -r | awk '{print substr($0, 3)}'`;do
     echo "* [$file]($file)" >> index.md
 done
 $TC_TOOL index.md > index.html
